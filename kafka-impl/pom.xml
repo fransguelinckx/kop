@@ -66,6 +66,7 @@
               <goal>single</goal>
             </goals>
             <configuration>
+              <tarLongFileMode>posix</tarLongFileMode>
               <attach>true</attach>
               <finalName>pulsar-kop-${project.version}</finalName>
               <descriptors>

@@ -2,9 +2,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -31,19 +31,6 @@ import io.netty.channel.ChannelHandlerContext;
 import io.streamnative.pulsar.handlers.kop.KafkaCommandDecoder.KafkaHeaderAndRequest;
 import io.streamnative.pulsar.handlers.kop.coordinator.group.GroupCoordinator;
 import io.streamnative.pulsar.handlers.kop.utils.MessageIdUtils;
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
-import java.nio.ByteBuffer;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 import lombok.Cleanup;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
@@ -51,6 +38,7 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.message.OffsetCommitRequestData;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Struct;
@@ -67,7 +55,6 @@ import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.MetadataResponse;
 import org.apache.kafka.common.requests.MetadataResponse.TopicMetadata;
 import org.apache.kafka.common.requests.OffsetCommitRequest;
-import org.apache.kafka.common.requests.OffsetCommitRequest.PartitionData;
 import org.apache.kafka.common.requests.OffsetCommitResponse;
 import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.serialization.StringSerializer;
@@ -83,6 +70,31 @@ import org.apache.pulsar.common.policies.data.TenantInfo;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+
+import static java.util.Collections.singletonList;
+import static org.apache.kafka.common.record.RecordBatch.NO_TIMESTAMP;
+import static org.apache.pulsar.common.naming.TopicName.PARTITIONED_TOPIC_SUFFIX;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertTrue;
+import static org.testng.Assert.fail;
 
 /**
  * Validate KafkaApisTest.
@@ -171,18 +183,23 @@ public class KafkaApisTest extends KopProtocolHandlerTestBase {
     }
 
     void checkInvalidPartition(CompletableFuture<AbstractResponse> future,
-                                                              String topic,
-                                                              int invalidPartitionId) {
-        TopicPartition invalidTopicPartition = new TopicPartition(topic, invalidPartitionId);
-        PartitionData partitionOffsetCommitData = new PartitionData(15L, "");
-        Map<TopicPartition, PartitionData> offsetData = Maps.newHashMap();
-        offsetData.put(invalidTopicPartition, partitionOffsetCommitData);
-        KafkaHeaderAndRequest request = buildRequest(new OffsetCommitRequest.Builder("groupId", offsetData));
+                               String topic,
+                               int invalidPartitionId) {
+        OffsetCommitRequestData.OffsetCommitRequestTopic offsetCommitRequestTopic = new OffsetCommitRequestData.OffsetCommitRequestTopic();
+        offsetCommitRequestTopic.setName(topic);
+        OffsetCommitRequestData.OffsetCommitRequestPartition offsetCommitRequestPartition = new OffsetCommitRequestData.OffsetCommitRequestPartition();
+        offsetCommitRequestPartition.setPartitionIndex(invalidPartitionId);
+        offsetCommitRequestPartition.setCommittedOffset(15L);
+        offsetCommitRequestTopic.setPartitions(singletonList(offsetCommitRequestPartition));
+        OffsetCommitRequestData offsetCommitRequestData = new OffsetCommitRequestData();
+        offsetCommitRequestData.setGroupId("groupId");
+        offsetCommitRequestData.setTopics(singletonList(offsetCommitRequestTopic));
+        KafkaHeaderAndRequest request = buildRequest(new OffsetCommitRequest.Builder(offsetCommitRequestData));
         kafkaRequestHandler.handleOffsetCommitRequest(request, future);
     }
 
-    @Test(timeOut = 20000, enabled = false)
     // https://github.com/streamnative/kop/issues/51
+    @Test(timeOut = 20000, enabled = false)
     public void testOffsetCommitWithInvalidPartition() throws Exception {
         String topicName = "kopOffsetCommitWithInvalidPartition";
 
@@ -190,17 +207,22 @@ public class KafkaApisTest extends KopProtocolHandlerTestBase {
         // invalid partition id -1;
         checkInvalidPartition(invalidResponse1, topicName, -1);
         AbstractResponse response1 = invalidResponse1.get();
-        TopicPartition topicPartition1 = new TopicPartition(topicName, -1);
-        assertEquals(((OffsetCommitResponse) response1).responseData().get(topicPartition1),
-            Errors.UNKNOWN_TOPIC_OR_PARTITION);
+        assertEquals(((OffsetCommitResponse) response1).data().topics().size(), 1);
+        assertEquals(((OffsetCommitResponse) response1).data().topics().get(0).name(), topicName);
+        assertEquals(((OffsetCommitResponse) response1).data().topics().get(0).partitions().size(), 1);
+        assertEquals(((OffsetCommitResponse) response1).data().topics().get(0).partitions().get(0).partitionIndex(), -1);
+        assertEquals(((OffsetCommitResponse) response1).data().topics().get(0).partitions().get(0).errorCode(), Errors.UNKNOWN_TOPIC_OR_PARTITION.code());
 
         // invalid partition id 1.
         CompletableFuture<AbstractResponse> invalidResponse2 = new CompletableFuture<>();
         checkInvalidPartition(invalidResponse2, topicName, 1);
         TopicPartition topicPartition2 = new TopicPartition(topicName, 1);
         AbstractResponse response2 = invalidResponse2.get();
-        assertEquals(((OffsetCommitResponse) response2).responseData().get(topicPartition2),
-            Errors.UNKNOWN_TOPIC_OR_PARTITION);
+        assertEquals(((OffsetCommitResponse) response2).data().topics().size(), 1);
+        assertEquals(((OffsetCommitResponse) response2).data().topics().get(0).name(), topicName);
+        assertEquals(((OffsetCommitResponse) response2).data().topics().get(0).partitions().size(), 1);
+        assertEquals(((OffsetCommitResponse) response2).data().topics().get(0).partitions().get(0).partitionIndex(), 1);
+        assertEquals(((OffsetCommitResponse) response2).data().topics().get(0).partitions().get(0).errorCode(), Errors.UNKNOWN_TOPIC_OR_PARTITION.code());
     }
 
     // TODO: Add transaction support https://github.com/streamnative/kop/issues/39
@@ -267,8 +289,11 @@ public class KafkaApisTest extends KopProtocolHandlerTestBase {
             totalMsgs, messageId, limitOffset);
 
         // 2. real test, for ListOffset request verify Earliest get earliest
-        Map<TopicPartition, Long> targetTimes = Maps.newHashMap();
-        targetTimes.put(tp, ListOffsetRequest.EARLIEST_TIMESTAMP);
+        Map<TopicPartition, ListOffsetRequest.PartitionData> targetTimes = Maps.newHashMap();
+        ListOffsetRequest.PartitionData partitionData = new ListOffsetRequest.PartitionData(
+            ListOffsetRequest.EARLIEST_TIMESTAMP,
+            Optional.empty());
+        targetTimes.put(tp, partitionData);
 
         ListOffsetRequest.Builder builder = ListOffsetRequest.Builder
             .forConsumer(true, IsolationLevel.READ_UNCOMMITTED)
@@ -335,8 +360,11 @@ public class KafkaApisTest extends KopProtocolHandlerTestBase {
             totalMsgs, messageId, limitOffset);
 
         // 2. real test, for ListOffset request verify Earliest get earliest
-        Map<TopicPartition, Long> targetTimes = Maps.newHashMap();
-        targetTimes.put(tp, ListOffsetRequest.LATEST_TIMESTAMP);
+        Map<TopicPartition, ListOffsetRequest.PartitionData> targetTimes = Maps.newHashMap();
+        ListOffsetRequest.PartitionData partitionData = new ListOffsetRequest.PartitionData(
+            ListOffsetRequest.LATEST_TIMESTAMP,
+            Optional.empty());
+        targetTimes.put(tp, partitionData);
 
         ListOffsetRequest.Builder builder = ListOffsetRequest.Builder
             .forConsumer(true, IsolationLevel.READ_UNCOMMITTED)
@@ -391,7 +419,7 @@ public class KafkaApisTest extends KopProtocolHandlerTestBase {
                 assertTrue(batchesSize.get() <= maxPartitionBytes);
                 assertTrue(maxPartitionBytes >= records.sizeInBytes());
             } else if (batchesSize.get() != 0 && emptyResponseSeen.get()) {
-                fail("Expected partition with size 0, but found " + tp + " with size " +  batchesSize.get());
+                fail("Expected partition with size 0, but found " + tp + " with size " + batchesSize.get());
             } else if (records.sizeInBytes() != 0 && emptyResponseSeen.get()) {
                 fail("Expected partition buffer with size 0, but found "
                     + tp + " with size " + records.sizeInBytes());
@@ -410,7 +438,8 @@ public class KafkaApisTest extends KopProtocolHandlerTestBase {
                     new FetchRequest.PartitionData(
                         offsetMap.getOrDefault(topic, 0L),
                         0L,
-                        maxPartitionBytes)))
+                        maxPartitionBytes,
+                        Optional.empty())))
             .collect(Collectors.toMap(Pair::getKey, Pair::getValue));
     }
 
@@ -473,7 +502,7 @@ public class KafkaApisTest extends KopProtocolHandlerTestBase {
 
     private void produceData(KafkaProducer<String, String> producer,
                              List<TopicPartition> topicPartitions,
-                             int numMessagesPerPartition) throws Exception{
+                             int numMessagesPerPartition) throws Exception {
         for (int index = 0; index < topicPartitions.size(); index++) {
             TopicPartition tp = topicPartitions.get(index);
             for (int messageIndex = 0; messageIndex < numMessagesPerPartition; messageIndex++) {
@@ -576,7 +605,7 @@ public class KafkaApisTest extends KopProtocolHandlerTestBase {
         shuffledTopicPartitions3.addAll(partitionsWithoutLargeMessages);
 
 
-        Map<TopicPartition, Long> offsetMaps =  Maps.newHashMap();
+        Map<TopicPartition, Long> offsetMaps = Maps.newHashMap();
         offsetMaps.put(partitionWithLargeMessage1, Long.valueOf(messagesPerPartition));
         KafkaHeaderAndRequest fetchRequest3 = createFetchRequest(
             maxResponseBytes,
@@ -637,8 +666,11 @@ public class KafkaApisTest extends KopProtocolHandlerTestBase {
         String topicName = "kopTestGetOffsetsForUnknownTopic";
 
         TopicPartition tp = new TopicPartition(topicName, 0);
-        Map<TopicPartition, Long> targetTimes = Maps.newHashMap();
-        targetTimes.put(tp, ListOffsetRequest.LATEST_TIMESTAMP);
+        Map<TopicPartition, ListOffsetRequest.PartitionData> targetTimes = Maps.newHashMap();
+        ListOffsetRequest.PartitionData partitionData = new ListOffsetRequest.PartitionData(
+            ListOffsetRequest.LATEST_TIMESTAMP,
+            Optional.empty());
+        targetTimes.put(tp, partitionData);
 
         ListOffsetRequest.Builder builder = ListOffsetRequest.Builder
             .forConsumer(false, IsolationLevel.READ_UNCOMMITTED)
@@ -654,4 +686,5 @@ public class KafkaApisTest extends KopProtocolHandlerTestBase {
         assertEquals(listOffsetResponse.responseData().get(tp).error,
             Errors.UNKNOWN_TOPIC_OR_PARTITION);
     }
+
 }

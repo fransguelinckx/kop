@@ -2,9 +2,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,22 +14,15 @@
 package io.streamnative.pulsar.handlers.kop;
 
 
-import static io.streamnative.pulsar.handlers.kop.utils.TopicNameUtils.getKafkaTopicNameFromPulsarTopicname;
-import static io.streamnative.pulsar.handlers.kop.utils.TopicNameUtils.getPartitionedTopicNameWithoutPartitions;
-import static org.apache.pulsar.common.naming.TopicName.PARTITIONED_TOPIC_SUFFIX;
-import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertTrue;
-
 import com.google.common.collect.Sets;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.streamnative.pulsar.handlers.kop.KafkaCommandDecoder.KafkaHeaderAndRequest;
 import io.streamnative.pulsar.handlers.kop.KafkaCommandDecoder.KafkaHeaderAndResponse;
 import io.streamnative.pulsar.handlers.kop.coordinator.group.GroupCoordinator;
-import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.Node;
+import org.apache.kafka.common.message.MetadataResponseData;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.requests.ApiVersionsRequest;
@@ -45,6 +38,15 @@ import org.apache.pulsar.common.policies.data.TenantInfo;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+
+import static io.streamnative.pulsar.handlers.kop.utils.TopicNameUtils.getKafkaTopicNameFromPulsarTopicname;
+import static io.streamnative.pulsar.handlers.kop.utils.TopicNameUtils.getPartitionedTopicNameWithoutPartitions;
+import static org.apache.pulsar.common.naming.TopicName.PARTITIONED_TOPIC_SUFFIX;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertTrue;
 
 /**
  * Unit test for {@link KafkaRequestHandler}.
@@ -152,7 +154,7 @@ public class KafkaRequestHandlerTest extends KopProtocolHandlerTestBase {
             Unpooled.buffer(20),
             null);
 
-        ApiVersionsResponse apiVersionsResponse = ApiVersionsResponse.defaultApiVersionsResponse();
+        ApiVersionsResponse apiVersionsResponse = ApiVersionsResponse.DEFAULT_API_VERSIONS_RESPONSE;
         KafkaHeaderAndResponse kopResponse = KafkaHeaderAndResponse.responseForRequest(
             kopRequest, apiVersionsResponse);
 
@@ -161,13 +163,13 @@ public class KafkaRequestHandlerTest extends KopProtocolHandlerTestBase {
 
         // 2. verify responseToByteBuf works well.
         ByteBuffer byteBuffer = serializedResponse.nioBuffer();
-        ResponseHeader responseHeader = ResponseHeader.parse(byteBuffer);
+        ResponseHeader responseHeader = ResponseHeader.parse(byteBuffer, (short) 0);
         assertEquals(responseHeader.correlationId(), correlationId);
 
         ApiVersionsResponse parsedResponse = ApiVersionsResponse.parse(
             byteBuffer, kopResponse.getApiVersion());
 
-        assertEquals(parsedResponse.apiVersions().size(), apiVersionsResponse.apiVersions().size());
+        assertEquals(parsedResponse.data.apiKeys().size(), apiVersionsResponse.data.apiKeys().size());
     }
 
     @Test
@@ -201,14 +203,13 @@ public class KafkaRequestHandlerTest extends KopProtocolHandlerTestBase {
         assertEquals(metadata.error(), Errors.NONE);
         assertEquals(metadata.partition(), partitionIndex);
 
-        metadata = KafkaRequestHandler.newFailedPartitionMetadata(topicName);
-        assertEquals(metadata.error(), Errors.NOT_LEADER_FOR_PARTITION);
-        assertEquals(metadata.partition(), 0);
+        MetadataResponseData.MetadataResponsePartition metadataResponsePartition = KafkaRequestHandler.newFailedMetadataResponsePartition(topicName);
+        assertEquals(metadataResponsePartition.errorCode(), Errors.NOT_LEADER_FOR_PARTITION.code());
+        assertEquals(metadataResponsePartition.partitionIndex(), 0);
 
-
-        metadata = KafkaRequestHandler.newFailedPartitionMetadata(topicNamePartition);
-        assertEquals(metadata.error(), Errors.NOT_LEADER_FOR_PARTITION);
-        assertEquals(metadata.partition(), partitionIndex);
+        metadataResponsePartition = KafkaRequestHandler.newFailedMetadataResponsePartition(topicNamePartition);
+        assertEquals(metadataResponsePartition.errorCode(), Errors.NOT_LEADER_FOR_PARTITION.code());
+        assertEquals(metadataResponsePartition.partitionIndex(), partitionIndex);
     }
 
     @Test

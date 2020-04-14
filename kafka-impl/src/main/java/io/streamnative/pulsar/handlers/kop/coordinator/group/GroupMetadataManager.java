@@ -2,9 +2,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -13,49 +13,12 @@
  */
 package io.streamnative.pulsar.handlers.kop.coordinator.group;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.CURRENT_GROUP_VALUE_SCHEMA_VERSION;
-import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.groupMetadataKey;
-import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.groupMetadataValue;
-import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.offsetCommitKey;
-import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.offsetCommitValue;
-import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.readGroupMessageValue;
-import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.readMessageKey;
-import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.readOffsetMessageValue;
-import static io.streamnative.pulsar.handlers.kop.utils.CoreUtils.inLock;
-import static org.apache.kafka.common.internals.Topic.GROUP_METADATA_TOPIC_NAME;
-import static org.apache.pulsar.common.naming.TopicName.PARTITIONED_TOPIC_SUFFIX;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadata.CommitRecordMetadataAndOffset;
 import io.streamnative.pulsar.handlers.kop.offset.OffsetAndMetadata;
 import io.streamnative.pulsar.handlers.kop.utils.CoreUtils;
 import io.streamnative.pulsar.handlers.kop.utils.MessageIdUtils;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import lombok.Data;
 import lombok.experimental.Accessors;
 import lombok.extern.slf4j.Slf4j;
@@ -85,6 +48,44 @@ import org.apache.pulsar.client.api.Reader;
 import org.apache.pulsar.client.api.ReaderBuilder;
 import org.apache.pulsar.client.impl.MessageIdImpl;
 import org.apache.pulsar.common.util.FutureUtil;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.CURRENT_GROUP_VALUE_SCHEMA_VERSION;
+import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.groupMetadataKey;
+import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.groupMetadataValue;
+import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.offsetCommitKey;
+import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.offsetCommitValue;
+import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.readGroupMessageValue;
+import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.readMessageKey;
+import static io.streamnative.pulsar.handlers.kop.coordinator.group.GroupMetadataConstants.readOffsetMessageValue;
+import static io.streamnative.pulsar.handlers.kop.utils.CoreUtils.inLock;
+import static org.apache.kafka.common.internals.Topic.GROUP_METADATA_TOPIC_NAME;
+import static org.apache.pulsar.common.naming.TopicName.PARTITIONED_TOPIC_SUFFIX;
 
 /**
  * Manager to manage a coordination group.
@@ -285,6 +286,7 @@ public class GroupMetadataManager {
     public ConcurrentMap<Integer, CompletableFuture<Producer<ByteBuffer>>> getOffsetsProducers() {
         return offsetsProducers;
     }
+
     public ConcurrentMap<Integer, CompletableFuture<Reader<ByteBuffer>>> getOffsetsReaders() {
         return offsetsReaders;
     }
@@ -607,6 +609,7 @@ public class GroupMetadataManager {
                     tp -> tp,
                     tp -> new PartitionData(
                         OffsetFetchResponse.INVALID_OFFSET,
+                        Optional.empty(),
                         "",
                         Errors.NONE
                     )
@@ -621,6 +624,7 @@ public class GroupMetadataManager {
                         tp -> tp,
                         tp -> new PartitionData(
                             OffsetFetchResponse.INVALID_OFFSET,
+                            Optional.empty(),
                             "",
                             Errors.NONE
                         )
@@ -635,11 +639,13 @@ public class GroupMetadataManager {
                             group.offset(topicPartition)
                                 .map(offsetAndMetadata -> new PartitionData(
                                     offsetAndMetadata.offset(),
+                                    Optional.empty(),
                                     offsetAndMetadata.metadata(),
                                     Errors.NONE
                                 ))
                                 .orElseGet(() -> new PartitionData(
                                     OffsetFetchResponse.INVALID_OFFSET,
+                                    Optional.empty(),
                                     "",
                                     Errors.NONE
                                 ))))
@@ -652,6 +658,7 @@ public class GroupMetadataManager {
                             OffsetAndMetadata oam = e.getValue();
                             return new PartitionData(
                                 oam.offset(),
+                                Optional.empty(),
                                 oam.metadata(),
                                 Errors.NONE
                             );

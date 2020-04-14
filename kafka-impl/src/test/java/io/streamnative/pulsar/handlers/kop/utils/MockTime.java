@@ -16,6 +16,8 @@ package io.streamnative.pulsar.handlers.kop.utils;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
+
 import org.apache.kafka.common.utils.Time;
 
 /**
@@ -88,6 +90,10 @@ public class MockTime implements Time {
         timeMs.addAndGet(ms);
         highResTimeNs.addAndGet(TimeUnit.MILLISECONDS.toNanos(ms));
         tick();
+    }
+
+    @Override
+    public void waitObject(Object obj, Supplier<Boolean> condition, long timeoutMs) throws InterruptedException {
     }
 
     public void setCurrentTimeMs(long newMs) {
