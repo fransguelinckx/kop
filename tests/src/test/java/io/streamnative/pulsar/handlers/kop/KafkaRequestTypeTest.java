@@ -383,7 +383,7 @@ public class KafkaRequestTypeTest extends KopProtocolHandlerTestBase {
     }
 
     // Test kafka consumer to consume, use consumer group and offset auto-commit
-    @Test(timeOut = 20000, dataProvider = "partitions", enabled = false)
+    @Test(timeOut = 20000, dataProvider = "partitions")
     public void testPulsarProduceKafkaConsume2(int partitionNumber) throws Exception {
         String topicName = "kopPulsarProduceKafkaConsume2" + partitionNumber;
         String pulsarTopicName = "persistent://public/default/" + topicName;
